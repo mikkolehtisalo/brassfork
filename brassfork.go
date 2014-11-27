@@ -4,11 +4,19 @@ import (
 	"code.google.com/p/gopacket"
 	"code.google.com/p/gopacket/layers"
 	"code.google.com/p/gopacket/pcap"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 )
+
+type Network struct {
+	CIDR  string
+	Name  string
+	ipnet *net.IPNet
+}
 
 type Object struct {
 	SourceIP   string
@@ -22,10 +30,12 @@ type Object struct {
 }
 
 type Node struct {
-	ID    string
-	Label string
+	ID      string
+	Label   string
+	Network string
 }
 
+// Tries to reverse resolve ip address
 func lookup_addr(addr string) string {
 	result := ""
 	addrs, _ := net.LookupAddr(addr)
@@ -105,10 +115,9 @@ func count_packets(messages chan int, cs chan Object, packets map[string]Object)
 		}
 	}
 	messages <- 2
-
 }
 
-func write_nodes_to_file(out_filename string, packets map[string]Object) {
+func write_nodes_to_file(out_filename string, packets map[string]Object, networks []Network) {
 	f, err := os.Create(out_filename)
 	if err != nil {
 		panic(err)
@@ -116,19 +125,19 @@ func write_nodes_to_file(out_filename string, packets map[string]Object) {
 	defer f.Close()
 
 	// Headers
-	f.WriteString("Id,Label\n")
+	f.WriteString("Id,Label,Network\n")
 
 	// Get all mentioned nodes, remove duplicates..
 	nodes := make(map[string]Node)
 
 	for _, packet := range packets {
-		nodes[packet.SourceIP] = Node{ID: packet.SourceIP, Label: lookup_addr(packet.SourceIP)}
-		nodes[packet.TargetIP] = Node{ID: packet.TargetIP, Label: lookup_addr(packet.TargetIP)}
+		nodes[packet.SourceIP] = Node{ID: packet.SourceIP, Label: lookup_addr(packet.SourceIP), Network: get_network(networks, packet.SourceIP)}
+		nodes[packet.TargetIP] = Node{ID: packet.TargetIP, Label: lookup_addr(packet.TargetIP), Network: get_network(networks, packet.TargetIP)}
 	}
 
 	for _, v := range nodes {
 		if v.ID != "" && v.Label != "" {
-			f.WriteString(fmt.Sprintf("%v,%v\n", v.ID, v.Label))
+			f.WriteString(fmt.Sprintf("%v,%v,%v\n", v.ID, v.Label, v.Network))
 		}
 	}
 }
@@ -150,10 +159,57 @@ func write_edges_to_file(out_filename string, packets map[string]Object) {
 
 }
 
+// Names the network the IP belongs to, if the name is known
+func get_network(networks []Network, ip_str string) string {
+	result := ""
+
+	if ip := net.ParseIP(ip_str); ip != nil {
+		for _, net := range networks {
+			if net.ipnet.Contains(ip) {
+				result = net.Name
+			}
+		}
+	}
+
+	return result
+}
+
+func read_networks(networks_filename string) []Network {
+	networks := []Network{}
+
+	// String representations...
+	if networks_filename != "" {
+		net_file, err := ioutil.ReadFile(networks_filename)
+		if err != nil {
+			panic(err)
+		}
+
+		err = json.Unmarshal(net_file, &networks)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// IPNets
+	// Alternatively could have implemented custom unmarshaler
+	for x, _ := range networks {
+		_, net, err := net.ParseCIDR(networks[x].CIDR)
+		if err != nil {
+			panic(err)
+		}
+
+		networks[x].ipnet = net
+	}
+
+	return networks
+}
+
 func main() {
 	var pcap_file = flag.String("in", "", "pcap file")
 	var nodes_file = flag.String("nodes", "", "node file")
 	var edges_file = flag.String("edges", "", "edge file")
+	var networks_file = flag.String("networks", "", "networks file")
+
 	flag.Parse()
 
 	if *pcap_file == "" || *nodes_file == "" || *edges_file == "" {
@@ -161,8 +217,9 @@ func main() {
 		return
 	}
 
-	objs := make(map[string]Object, 1000)
+	nets := read_networks(*networks_file)
 
+	objs := make(map[string]Object, 1000)
 	cs := make(chan Object)
 	messages := make(chan int)
 
@@ -174,7 +231,7 @@ func main() {
 		<-messages
 	}
 
-	// Instead of using goroutines, this is easier for gathering the aggregates...
-	write_nodes_to_file(*nodes_file, objs)
+	// Instead of using goroutines & channels, this is easier for calculating the aggregates...
+	write_nodes_to_file(*nodes_file, objs, nets)
 	write_edges_to_file(*edges_file, objs)
 }

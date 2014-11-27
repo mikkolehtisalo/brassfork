@@ -1,0 +1,10 @@
+[
+  {
+    "CIDR": "192.168.1.0/24",
+    "Name": "Home network"
+  },
+  {
+    "CIDR": "192.168.2.0/24",
+    "Name": "Other network"
+  }
+]
