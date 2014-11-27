@@ -24,6 +24,7 @@ type Object struct {
 	TargetIP   string
 	TargetName string
 	Service    string
+	Protocol   string
 	Packages   int
 	Bytes      int
 	Syns       int
@@ -72,7 +73,8 @@ func read_packets(messages chan int, cs chan Object, in_filename string) {
 			// TCP
 			if tcp_layer := packet.Layer(layers.LayerTypeTCP); tcp_layer != nil {
 				tcp, _ := tcp_layer.(*layers.TCP)
-				result.Service = fmt.Sprintf("%v/TCP", tcp.DstPort)
+				result.Service = fmt.Sprintf("%v", tcp.DstPort)
+				result.Protocol = "TCP"
 				if tcp.SYN {
 					result.Syns = 1
 				}
@@ -81,13 +83,15 @@ func read_packets(messages chan int, cs chan Object, in_filename string) {
 			// UDP
 			if udp_layer := packet.Layer(layers.LayerTypeUDP); udp_layer != nil {
 				udp, _ := udp_layer.(*layers.UDP)
-				result.Service = fmt.Sprintf("%v/UDP", udp.DstPort)
+				result.Service = fmt.Sprintf("%v", udp.DstPort)
+				result.Protocol = "UDP"
 			}
 
 			// SCTP
 			if sctp_layer := packet.Layer(layers.LayerTypeSCTP); sctp_layer != nil {
 				sctp, _ := sctp_layer.(*layers.SCTP)
-				result.Service = fmt.Sprintf("%v/SCTP", sctp.DstPort)
+				result.Service = fmt.Sprintf("%v", sctp.DstPort)
+				result.Protocol = "SCTP"
 			}
 
 			cs <- result
@@ -150,11 +154,13 @@ func write_edges_to_file(out_filename string, packets map[string]Object) {
 	defer f.Close()
 
 	// Headers
-	f.WriteString("Source,Target,Type,Label,Weight,Bytes,Packages,SYNs\n")
+	f.WriteString("Source,Target,Type,Label,Protocol,Weight,Bytes,Packages,SYNs\n")
 
 	for _, packet := range packets {
-		f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v\n",
-			packet.SourceIP, packet.TargetIP, packet.Service, packet.Bytes, packet.Bytes, packet.Packages, packet.Syns))
+		if packet.SourceIP != "" && packet.TargetIP != "" {
+			f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v,%v\n",
+				packet.SourceIP, packet.TargetIP, packet.Service, packet.Protocol, packet.Bytes, packet.Bytes, packet.Packages, packet.Syns))
+		}
 	}
 
 }
