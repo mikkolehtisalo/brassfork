@@ -1,7 +1,7 @@
 Brassfork
 =========
 
-Visualizes network by its traffic. Reads pcap files, and spits out files for graphing with [Gephi](https://gephi.github.io/).
+Visualizes network by its traffic. Reads pcap files, and spits out files for graphing with [Gephi](https://gephi.github.io/) (or anything else that can take in edge/node data in csv format, eg. Graphviz).
 
 Example result
 --------------
@@ -50,7 +50,8 @@ Extra attributes generated for edges:
 * SYNs: Detected SYN packages (attempted new TCP connections)
 * FINs: Detected FIN packages (by the initiator)
 * Unfinished: For TCP, SYNs-FINs (rough indication to how many connections have not been closed already/properly)
-* Bytes: Cumulative counter of bytes transported in IP frames. This is also set as the weight for edges.
+* Avg: Average TCP connection duration in milliseconds, for completed connections
+* Bytes: Cumulative counter of bytes transported. This is also set as the weight for edges.
 
 Extra attributes generated for nodes:
 
