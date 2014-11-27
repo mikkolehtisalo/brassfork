@@ -1,17 +1,37 @@
 Brassfork
 =========
 
-Reads pcap files, and spits out files for graphing with [Gephi](https://gephi.github.io/).
+Visualizes network by its traffic. Reads pcap files, and spits out files for graphing with [Gephi](https://gephi.github.io/).
+
+Requirements and building
+------------
+
+Dependencies (tested with):
+
+* libpcap 1.5+
+* go 1.3+
+
+Recommended:
+
+* [Gephi](https://gephi.github.io/)
+* [Wireshark](https://www.wireshark.org/)
+
+To build, just use go build:
+
+```go
+go build brassfork
+```
 
 Usage
 -----
 
-```
-go build brassfork
+First capture some network traffic, and save it as pcap file. Then run brassfork:
+
+```sh
 ./brassfork -in=capture.pcap -edges=edges.csv -nodes=nodes.csv
 ```
 
-You can import the edges and nodes from the csv files. 
+The resulting edge and node files can then be imported to Gephi for graphing.
 
 Attributes
 ----------
@@ -20,6 +40,8 @@ Extra attributes generated for edges:
 
 * Packages: Amount of packages related to edge
 * SYNs: Detected SYN packages (attempted new TCP connections)
+* FINs: Detected FIN packages (by the initiator)
+* Unfinished: For TCP, difference between SYNs and FINs (rough indication to how many connections have not been closed already/properly)
 * Bytes: Cumulative counter of bytes transported in IP frames. This is also set as the weight for edges.
 
 Extra attributes generated for nodes:
@@ -46,7 +68,7 @@ Network names are useful for partitioning data in Gephi. Create a valid JSON fil
 
 After creating the file run brassfork with the -networks parameter, like
 
-```
+```sh
 ./brassfork -in=capture.pcap -edges=edges.csv -nodes=nodes.csv -networks=example.json
 ```
 

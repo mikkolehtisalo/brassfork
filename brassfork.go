@@ -28,6 +28,7 @@ type Object struct {
 	Packages   int
 	Bytes      int
 	Syns       int
+	Fins       int
 }
 
 type Node struct {
@@ -78,6 +79,9 @@ func read_packets(messages chan int, cs chan Object, in_filename string) {
 				if tcp.SYN {
 					result.Syns = 1
 				}
+				if tcp.FIN {
+					result.Fins = 1
+				}
 			}
 
 			// UDP
@@ -108,10 +112,11 @@ func count_packets(messages chan int, cs chan Object, packets map[string]Object)
 
 		// Exists already?
 		if p, ok := packets[key]; ok {
-			// Existed, add just Packages + Bytes + Syns
+			// Existed, add just Packages + Bytes + Syns + Fins
 			p.Bytes = p.Bytes + packet.Bytes
 			p.Packages = p.Packages + 1
 			p.Syns = p.Syns + packet.Syns
+			p.Fins = p.Fins + packet.Fins
 			packets[key] = p
 		} else {
 			// Did not exist, add
@@ -154,12 +159,17 @@ func write_edges_to_file(out_filename string, packets map[string]Object) {
 	defer f.Close()
 
 	// Headers
-	f.WriteString("Source,Target,Type,Label,Protocol,Weight,Bytes,Packages,SYNs\n")
+	f.WriteString("Source,Target,Type,Label,Protocol,Weight,Bytes,Packages,SYNs,FINs,Unfinished\n")
 
 	for _, packet := range packets {
 		if packet.SourceIP != "" && packet.TargetIP != "" {
-			f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v,%v\n",
-				packet.SourceIP, packet.TargetIP, packet.Service, packet.Protocol, packet.Bytes, packet.Bytes, packet.Packages, packet.Syns))
+			unf := 0
+			if packet.Protocol == "TCP" {
+				unf = packet.Syns - packet.Fins
+			}
+			f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v,%v,%v,%v\n",
+				packet.SourceIP, packet.TargetIP, packet.Service, packet.Protocol,
+				packet.Bytes, packet.Bytes, packet.Packages, packet.Syns, packet.Fins, unf))
 		}
 	}
 
