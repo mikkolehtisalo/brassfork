@@ -1,7 +1,9 @@
 Brassfork
 =========
 
-Visualizes network by its traffic. Reads pcap files, and spits out files for graphing with [Gephi](https://gephi.github.io/) (or anything else that can take in edge/node data in csv format, eg. Graphviz).
+This application helps in visualizing network traffic. It does that by reading pcap files and outputting files that can be read by graphing applications, for example [Gephi](https://gephi.github.io/).
+
+Supported protocols are IPv4, IPv6, TCP, UDP, and SCTP.
 
 Example result
 --------------
@@ -26,8 +28,8 @@ Recommended:
 To build, just use go get and build:
 
 ```go
-go get "github.com/mikkolehtisalo/brassfork"
-go build "github.com/mikkolehtisalo/brassfork"
+go get github.com/mikkolehtisalo/brassfork
+go build github.com/mikkolehtisalo/brassfork
 ```
 
 Usage
@@ -47,11 +49,11 @@ Attributes
 Extra attributes generated for edges:
 
 * Packages: Amount of packages related to edge
-* SYNs: Detected SYN packages (attempted new TCP connections)
-* FINs: Detected FIN packages (by the initiator)
+* SYNs: SYN packages (attempted new TCP connections)
+* FINs: FIN packages (by the source node)
 * Unfinished: For TCP, SYNs-FINs (rough indication to how many connections have not been closed already/properly)
-* Avg: Average TCP connection duration in milliseconds, for completed connections
-* Bytes: Cumulative counter of bytes transported. This is also set as the weight for edges.
+* Avg: Average TCP connection duration in milliseconds, for *completed* connections
+* Bytes: Cumulative counter of bytes transported. This is also the Weight of edges.
 
 Extra attributes generated for nodes:
 
@@ -60,7 +62,7 @@ Extra attributes generated for nodes:
 Network names
 -------------
 
-Network names are useful for partitioning data in Gephi. Create a valid JSON file containing information about your known networks. Take a look at *example.json*:
+Network names are useful for partitioning data in Gephi. Create a valid JSON file containing information about your known networks. Take a look at *example.json* for example:
 
 ```json
 [
@@ -82,5 +84,3 @@ After creating the file run brassfork with the -networks parameter, like
 ```
 
 The nodes output should contain the Network information for nodes with matching IP addresses.
-
-

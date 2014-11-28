@@ -13,12 +13,14 @@ import (
 	"time"
 )
 
+// Used for generating network names for Nodes
 type Network struct {
 	CIDR  string
 	Name  string
 	ipnet *net.IPNet
 }
 
+// Used for gathering most of the data
 type Object struct {
 	SourceIP   string
 	SourceName string
@@ -49,7 +51,7 @@ type Connection struct {
 	FinTime  time.Time
 }
 
-// Tries to reverse resolve ip address
+// Tries to reverse resolve ip address. Returns empty string if unsuccessful.
 func lookup_addr(addr string) string {
 	result := ""
 	addrs, _ := net.LookupAddr(addr)
@@ -59,18 +61,19 @@ func lookup_addr(addr string) string {
 	return result
 }
 
+// Gets source and target IPs from packet, if it is either IPv4 or IPv6
 func get_ips(packet gopacket.Packet) (string, string) {
 	src := ""
 	tgt := ""
 
-	// IPv4 LayerTypeIPv4
+	// IPv4
 	if ipv4_layer := packet.Layer(layers.LayerTypeIPv4); ipv4_layer != nil {
 		ipv4, _ := ipv4_layer.(*layers.IPv4)
 		src = ipv4.SrcIP.String()
 		tgt = ipv4.DstIP.String()
 	}
 
-	// IPv6 LayerTypeIPv6
+	// IPv6
 	if ipv6_layer := packet.Layer(layers.LayerTypeIPv6); ipv6_layer != nil {
 		ipv6, _ := ipv6_layer.(*layers.IPv6)
 		src = ipv6.SrcIP.String()
@@ -80,6 +83,8 @@ func get_ips(packet gopacket.Packet) (string, string) {
 	return src, tgt
 }
 
+// Read the packets from file, gather some very basic information, and forward the information to other goroutines.
+// Does not check for pcap parsing errors, but those should be rare for the most common layer types...
 func read_packets(messages chan int, cs chan Object, cs2 chan gopacket.Packet, in_filename string) {
 	if handle, err := pcap.OpenOffline(in_filename); err != nil {
 		panic(err)
@@ -95,6 +100,7 @@ func read_packets(messages chan int, cs chan Object, cs2 chan gopacket.Packet, i
 			// TCP
 			if tcp_layer := packet.Layer(layers.LayerTypeTCP); tcp_layer != nil {
 				tcp, _ := tcp_layer.(*layers.TCP)
+				// Calls String(), which may return "number(name)" or "number"
 				result.Service = fmt.Sprintf("%v", tcp.DstPort)
 				result.Protocol = "TCP"
 				if tcp.SYN {
@@ -108,6 +114,7 @@ func read_packets(messages chan int, cs chan Object, cs2 chan gopacket.Packet, i
 			// UDP
 			if udp_layer := packet.Layer(layers.LayerTypeUDP); udp_layer != nil {
 				udp, _ := udp_layer.(*layers.UDP)
+				// Calls String(), which may return "number(name)" or "number"
 				result.Service = fmt.Sprintf("%v", udp.DstPort)
 				result.Protocol = "UDP"
 			}
@@ -115,12 +122,17 @@ func read_packets(messages chan int, cs chan Object, cs2 chan gopacket.Packet, i
 			// SCTP
 			if sctp_layer := packet.Layer(layers.LayerTypeSCTP); sctp_layer != nil {
 				sctp, _ := sctp_layer.(*layers.SCTP)
+				// Calls String(), which may return "number(name)" or "number"
 				result.Service = fmt.Sprintf("%v", sctp.DstPort)
 				result.Protocol = "SCTP"
 			}
 
-			cs <- result
-			cs2 <- packet
+			// Only forward this packet, if we got the basic information about the packet
+			// This rules out packages such as dhcp
+			if result.SourceIP != "" && result.TargetIP != "" && result.Protocol != "" {
+				cs <- result
+				cs2 <- packet
+			}
 
 		}
 	}
@@ -152,8 +164,6 @@ func count_packets(messages chan int, cs chan Object, packets map[string]Object)
 
 // Tracks TCP connection statuses
 func track_tcp_connections(messages chan int, cs chan gopacket.Packet, conns *[]Connection) {
-	//conns := []Connection{}
-
 	for packet := range cs {
 
 		src, tgt := get_ips(packet)
@@ -166,6 +176,7 @@ func track_tcp_connections(messages chan int, cs chan gopacket.Packet, conns *[]
 		// Gather info from TCP layer
 		if tcp_layer := packet.Layer(layers.LayerTypeTCP); tcp_layer != nil {
 			tcp, _ := tcp_layer.(*layers.TCP)
+			// Calls String(), which may return "number(name)" or "number"
 			svc = fmt.Sprintf("%v", tcp.DstPort)
 			seq = tcp.Seq
 			if tcp.SYN {
@@ -190,6 +201,7 @@ func track_tcp_connections(messages chan int, cs chan gopacket.Packet, conns *[]
 			} else {
 				// Try to find matching package
 				// .. This takes account only packages to one direction, but that should be okayish
+				// (there should be a matching FIN anyways, discarding only the second one doesn't usually change the end result)
 				for i, x := range *conns {
 					if x.SourceIP == src && x.TargetIP == tgt && x.Service == svc && x.Sequence+1 == seq {
 						// Update sequence, and if fin the timestamp for that
@@ -200,13 +212,14 @@ func track_tcp_connections(messages chan int, cs chan gopacket.Packet, conns *[]
 					}
 				}
 			}
-
 		}
 	}
 
 	messages <- 3
 }
 
+// Calculate average time (TCP, limited by generated input data) connections on edge have taken
+// Process only connections that have both start and end timestamps
 func get_avg_tcp(conns []Connection, packet Object) int {
 	result := 0
 
@@ -226,13 +239,13 @@ func get_avg_tcp(conns []Connection, packet Object) int {
 			diffms := diff.Nanoseconds() / 1000000
 			sum = sum + diffms
 		}
-		avg := int(sum / int64(len(matching)))
-		result = avg
+		result = int(sum / int64(len(matching)))
 	}
 
 	return result
 }
 
+// Writes node information to file, in format Gephi knows how to import
 func write_nodes_to_file(out_filename string, packets map[string]Object, networks []Network) {
 	f, err := os.Create(out_filename)
 	if err != nil {
@@ -258,6 +271,7 @@ func write_nodes_to_file(out_filename string, packets map[string]Object, network
 	}
 }
 
+// Writes edge information to file, in format Gephi knows how to import
 func write_edges_to_file(out_filename string, packets map[string]Object, conns []Connection) {
 	f, err := os.Create(out_filename)
 	if err != nil {
@@ -269,23 +283,21 @@ func write_edges_to_file(out_filename string, packets map[string]Object, conns [
 	f.WriteString("Source,Target,Type,Label,Protocol,Weight,Bytes,Packages,SYNs,FINs,Unfinished,Avg\n")
 
 	for _, packet := range packets {
-		if packet.SourceIP != "" && packet.TargetIP != "" {
-			unf := 0
-			avg := 0
-			if packet.Protocol == "TCP" {
-				unf = packet.Syns - packet.Fins
-				// It's possible we missed some in the capture itself...
-				// There's no point reporting negative number
-				if unf < 0 {
-					unf = 0
-				}
-				// conns
-				avg = get_avg_tcp(conns, packet)
+		unf := 0
+		avg := 0
+		if packet.Protocol == "TCP" {
+			unf = packet.Syns - packet.Fins
+			// It's possible we missed some in the capture itself...
+			// There's no point reporting negative number
+			if unf < 0 {
+				unf = 0
 			}
-			f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v,%v,%v,%v,%v\n",
-				packet.SourceIP, packet.TargetIP, packet.Service, packet.Protocol,
-				packet.Bytes, packet.Bytes, packet.Packages, packet.Syns, packet.Fins, unf, avg))
+			// Average time TCP connections took on this edge
+			avg = get_avg_tcp(conns, packet)
 		}
+		f.WriteString(fmt.Sprintf("%v,%v,Directed,%v,%v,%v,%v,%v,%v,%v,%v,%v\n",
+			packet.SourceIP, packet.TargetIP, packet.Service, packet.Protocol,
+			packet.Bytes, packet.Bytes, packet.Packages, packet.Syns, packet.Fins, unf, avg))
 	}
 
 }
@@ -305,10 +317,11 @@ func get_network(networks []Network, ip_str string) string {
 	return result
 }
 
+// Reads networks information in JSON format for naming networks of Nodes
 func read_networks(networks_filename string) []Network {
 	networks := []Network{}
 
-	// String representations...
+	// Reading the string versions
 	if networks_filename != "" {
 		net_file, err := ioutil.ReadFile(networks_filename)
 		if err != nil {
@@ -321,8 +334,8 @@ func read_networks(networks_filename string) []Network {
 		}
 	}
 
-	// IPNets
-	// Alternatively could have implemented custom unmarshaler
+	// Generating IPNets
+	// Alternatively could have implemented custom JSON unmarshaler
 	for x, _ := range networks {
 		_, net, err := net.ParseCIDR(networks[x].CIDR)
 		if err != nil {
@@ -357,8 +370,11 @@ func main() {
 	cs2 := make(chan gopacket.Packet)
 	messages := make(chan int)
 
+	// Read packets and their basic information
 	go read_packets(messages, cs, cs2, *pcap_file)
+	// Aggregate basic statistics
 	go count_packets(messages, cs, objs)
+	// Track the TCP connection durations
 	go track_tcp_connections(messages, cs2, &conns)
 
 	for i := 0; i < 3; i++ {
@@ -366,7 +382,7 @@ func main() {
 		<-messages
 	}
 
-	// Instead of using goroutines & channels, this is easier for calculating the aggregates...
+	// Easier approach than attempting to do this with channels
 	write_nodes_to_file(*nodes_file, objs, nets)
 	write_edges_to_file(*edges_file, objs, conns)
 }
