@@ -38,7 +38,7 @@ Usage
 First capture some network traffic, and save it as pcap file. Then run brassfork:
 
 ```sh
-./brassfork -in=capture.pcap -edges=edges.csv -nodes=nodes.csv
+GOMAXPROCS=8 ./brassfork -in=capture.pcap -edges=edges.csv -nodes=nodes.csv
 ```
 
 The resulting edge and node files can then be imported to Gephi for graphing.
